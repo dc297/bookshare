@@ -1,7 +1,11 @@
 package in.dc297.bookshare.activity;
 
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
@@ -15,6 +19,8 @@ import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.firebase.ui.auth.AuthUI;
@@ -24,6 +30,9 @@ import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 
+import org.w3c.dom.Text;
+
+import java.net.URL;
 import java.util.Arrays;
 import java.util.List;
 
@@ -38,6 +47,11 @@ public class MainActivity extends AppCompatActivity
             new AuthUI.IdpConfig.Builder(AuthUI.EMAIL_PROVIDER).build(),
             new AuthUI.IdpConfig.Builder(AuthUI.GOOGLE_PROVIDER).build());
 
+    private NavigationView navigationView;
+
+    private Handler handler;
+
+    private HandlerThread handlerThread;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -60,13 +74,18 @@ public class MainActivity extends AppCompatActivity
         drawer.addDrawerListener(toggle);
         toggle.syncState();
 
-        NavigationView navigationView = (NavigationView) findViewById(R.id.nav_view);
+        navigationView = (NavigationView) findViewById(R.id.nav_view);
         navigationView.setNavigationItemSelectedListener(this);
 
-        if(!isLogedin())showLogin();
+        handlerThread = new HandlerThread("inference");
+        handlerThread.start();
+        handler = new Handler(handlerThread.getLooper());
+
+        if(!isLoggedin()) showLogin();
+        else populateUserDetails();
     }
 
-    private boolean isLogedin(){
+    private boolean isLoggedin(){
         FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
         return user!=null;
     }
@@ -90,6 +109,53 @@ public class MainActivity extends AppCompatActivity
                         .setAvailableProviders(providers)
                         .build(),
                 RC_SIGN_IN);
+    }
+
+    private void populateUserDetails(){
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        populateHeaderView(user);
+    }
+
+    private void populateHeaderView(final FirebaseUser user){
+        if(navigationView!=null) {
+            TextView userNameTV = (TextView) navigationView.getHeaderView(0).findViewById(R.id.userName);
+            TextView userEmailTV = (TextView) navigationView.getHeaderView(0).findViewById(R.id.userEmail);
+            final ImageView profilePictureIV = (ImageView) navigationView.getHeaderView(0).findViewById(R.id.profilePicture);
+
+            userNameTV.setText(user.getDisplayName());
+            userEmailTV.setText(user.getEmail());
+            runInBackground(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        URL url = new URL(user.getPhotoUrl().toString());
+                        final Bitmap bmp = BitmapFactory.decodeStream(url.openConnection().getInputStream());
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                profilePictureIV.setImageBitmap(bmp);
+                            }
+                        });
+                    }
+                    catch(Exception e) {
+                        e.printStackTrace();
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                Toast.makeText(getApplicationContext(), "Failed to fetch profile photo", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                }
+            });
+
+        }
+    }
+
+    protected synchronized void runInBackground(final Runnable r) {
+        if (handler != null) {
+            handler.post(r);
+        }
     }
 
     @Override
@@ -130,20 +196,7 @@ public class MainActivity extends AppCompatActivity
         // Handle navigation view item clicks here.
         int id = item.getItemId();
 
-        if (id == R.id.nav_camera) {
-            // Handle the camera action
-        } else if (id == R.id.nav_gallery) {
-
-        } else if (id == R.id.nav_slideshow) {
-
-        } else if (id == R.id.nav_manage) {
-
-        } else if (id == R.id.nav_share) {
-
-        } else if (id == R.id.nav_send) {
-
-        }
-        else if (id == R.id.nav_logout) {
+        if (id == R.id.nav_logout) {
             logOut();
         }
 
@@ -161,14 +214,10 @@ public class MainActivity extends AppCompatActivity
 
             if (resultCode == RESULT_OK) {
                 // Successfully signed in
-                FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
-                Log.i(MainActivity.class.getName(),user.getDisplayName());
-                // ...
+                populateUserDetails();
             } else {
                 // Sign in failed, check response for error code
-                // ...
-                FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
-                if(user==null) Log.i(MainActivity.class.getName(),"login failed");
+                if(!isLoggedin()) Log.i(MainActivity.class.getName(),"login failed error code : " + resultCode);
             }
         }
     }
